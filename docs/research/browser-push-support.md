@@ -1,0 +1,58 @@
+# Browser push support and installation requirements
+
+Researched 21 November 2026 for [Establish browser push support and installation requirements](https://github.com/alexmayku/ai-hero-project/issues/2), part of [Cadence lesson Q&A push specification](https://github.com/alexmayku/ai-hero-project/issues/1).
+
+This is documentation research, not a tested compatibility certification or a supported-device policy. No application code changed. The candidate test matrix below is proposed evidence-gathering work; the human still chooses the supported environments and product behavior.
+
+## Findings
+
+Browser push can reach someone who is not viewing Cadence. A notification created only by a loaded page is different: the cross-browser push path receives a server message through a service worker and displays an OS notification. Permission, a subscription and a delivery path are separate prerequisites. [Mozilla Push API documentation](https://developer.mozilla.org/en-US/docs/Web/API/Push_API)
+
+| Environment | Documented capability and installation boundary | Qualification |
+| --- | --- | --- |
+| Desktop Chrome, including Windows/macOS | Website notifications; installing Cadence is not a prerequisite. | Closing a tab/window differs from fully quitting the browser. Google's FAQ describes delivery while Chrome runs in the background, not while fully quit. [Chrome help](https://support.google.com/chrome/answer/3220216?co=GENIE.PlatformDesktop&hl=en), [Google FAQ](https://web.dev/articles/push-notifications-faq) |
+| Desktop Edge | Microsoft documents permission, subscription, service-worker reception and visible notifications for PWAs. | Test website and installed modes separately; the cited guide does not certify every OS or fully-quit state. [Microsoft guide](https://learn.microsoft.com/en-us/microsoft-edge/progressive-web-apps/how-to/push) |
+| Desktop Firefox | Websites can push without their tab loaded; installation is not required. | Normally Firefox must remain running. Current Mozilla documentation describes an experimental progressive rollout for fully-closed delivery on some Windows installations, excluding macOS, Linux and organization-managed installations. Do not promise this universally. [Mozilla help](https://support.mozilla.org/en-US/kb/push-notifications-firefox) |
+| Safari on macOS Ventura 13+ | Standards-based website push, including without an installed web app. WebKit's retrospective identifies Safari 16.1 as the shipped release. | Apple's API guide calls it Safari 16 on macOS 13; use feature detection and test the minimum version actually promised. Safari integrates background reception with macOS. [WebKit release history](https://webkit.org/blog/16574/webkit-features-in-safari-18-4/), [Meet Web Push](https://webkit.org/blog/12945/meet-web-push/) |
+| Android Chrome | Website notifications; a Home Screen installation is optional. | Android can wake a browser to process push. OS settings, force-stop and vendor battery behavior need physical-device testing. [Chrome Android help](https://support.google.com/chrome/answer/3220216?co=GENIE.Platform%3DAndroid&hl=en), [Google FAQ](https://web.dev/articles/push-notifications-faq) |
+| Android Firefox | Mozilla documents delivery using Mozilla's service and Google's messaging platform. | Validate separately from Chrome; no inference that every Android browser behaves identically. [Mozilla help](https://support.mozilla.org/en-US/kb/push-notifications-firefox) |
+| iPhone/iPad, iOS/iPadOS 16.4+ | Push is for Home Screen **web apps**, not an ordinary browser tab. The user installs, launches the web app, then explicitly opts in. | Third-party browsers can offer Add to Home Screen. That does not make their ordinary iOS tabs push-capable. [WebKit iOS guide](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/) |
+| Older iOS/iPadOS; embedded browsers/WebViews; private or managed contexts; other Android browsers | No blanket support established by this research. | Chrome explicitly disallows notifications in private browsing. Treat the other contexts as unverified, rather than importing capabilities from the browser brand. [Chrome help](https://support.google.com/chrome/answer/3220216?co=GENIE.Platform%3DAndroid&hl=en) |
+
+For the iOS 16.4-era installation route, WebKit describes a manifest with `display: standalone` or `fullscreen`; a Home Screen bookmark opening a browser is different from a web app. Notifications can appear on the lock screen, Notification Center and a paired Apple Watch; Focus affects presentation. Multiple installations can have distinct identities. These facts make installation, account association and content previews separate product questions. [WebKit iOS guide](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)
+
+## Permissions, lifecycle and privacy
+
+- **Enable:** use HTTPS and detect the required APIs at runtime. The conventional interoperable implementation needs a service worker, Notifications API and Push API; API presence alone does not prove permission or working delivery. Protect subscription-registration requests against CSRF and treat endpoint URLs as secrets. [Mozilla API reference](https://developer.mozilla.org/en-US/docs/Web/API/Push_API)
+- **User action:** Apple requires subscription immediately from a user gesture; associate the resulting endpoint and encryption keys with the authenticated account. Standard Safari push must display a notification when received; silent processing can lead to permission revocation. Apple Developer Program membership is unnecessary. [Apple implementation guide](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers)
+- **Denied or revoked:** Mozilla documents Allow, Block and reset-to-ask behavior. Chrome may use quieter prompts and automatically remove permissions from unused or disruptive sites. A past grant is not permanent; a Cadence setting cannot override browser or OS controls. [Mozilla help](https://support.mozilla.org/en-US/kb/push-notifications-firefox), [Chrome desktop help](https://support.google.com/chrome/answer/3220216?co=GENIE.PlatformDesktop&hl=en)
+- **Subscription change:** the Push API draft specifies refresh, expiry and deactivation. Revocation deactivates subscriptions; service-worker-bound subscriptions disappear when that registration is cleared. Therefore reconcile the actual browser subscription when Cadence opens and retire invalid server endpoints. That last sentence is an engineering implication, not proof that a background change event works uniformly in every browser. [W3C Push API, subscription lifecycle and security](https://www.w3.org/TR/push-api/)
+- **Visible notification contract:** Edge requires `userVisibleOnly: true` and displays a generic notification if the handler fails to display one. Sending push and then suppressing its display is not a portable way to implement foreground/read suppression; decide eligibility before sending. [Microsoft guide](https://learn.microsoft.com/en-us/microsoft-edge/progressive-web-apps/how-to/push)
+- **Privacy boundary:** payload encryption does not hide timing, frequency and size from the browser's push service. The service and an orchestration vendor are distinct actors. Lock-screen previews and shared-device accounts remain product privacy questions; endpoint possession must not authorize access to a lesson. [W3C security considerations](https://www.w3.org/TR/push-api/)
+
+### Current WebKit evolution
+
+Declarative Web Push can display a supplied notification without an installed service worker; optional worker processing has a declarative fallback. WebKit documents it on iOS/iPadOS 18.4, and its introduction discusses macOS 15.5 beta. This addresses worker failure and removal of website data by tracking prevention. It does **not** remove the iOS Home Screen requirement. Do not assume a chosen provider emits its payload format, or that all browsers implement this API. Confirm provider compatibility and actual target versions before adopting it. [WebKit design](https://webkit.org/blog/16535/meet-declarative-web-push/), [Safari 18.4 release notes](https://webkit.org/blog/16574/webkit-features-in-safari-18-4/)
+
+## Delivery boundaries
+
+Push is not a guaranteed immediate reminder channel. RFC 8030 requires a time-to-live; a service may shorten retention and must stop delivery after expiry. Urgency influences delivery and power management; it is not a deadline guarantee. Offline delivery can be delayed or expire. A successful send response is not evidence the person saw or read the question/reply. [RFC 8030, sections 5.2–5.3 and 6](https://www.rfc-editor.org/rfc/rfc8030)
+
+Apple documents bounded offline storage and delayed delivery when a device becomes available. Network access to Apple's push endpoints may need firewall allowance. [Apple implementation guide](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers)
+
+## Candidate support test matrix
+
+These are proposed tests, **none executed**. Record exact OS/browser build, hardware, installation mode, managed/private status, permissions, subscription creation, send response, observed arrival, and click outcome. Choose any minimum supported versions with the human before turning this into release acceptance criteria.
+
+| Test group | Candidate environments | Observation to capture |
+| --- | --- | --- |
+| Basic desktop | Chrome/Edge on Windows and macOS; Firefox on Windows/macOS/Linux; Safari on Ventura minimum and a current macOS | Subscribe and receive with Cadence focused, another tab focused, Cadence tab closed, all windows closed, and browser fully quit. Distinguish all five. |
+| Android | Physical Chrome and Firefox devices; at least one additional OEM if included in policy | Website versus installed web app; background, screen locked, browser swiped away, force-stopped, OS notification disabled, battery restrictions. |
+| Apple mobile | Physical iPhone and iPad; lowest promised version plus current version | Ordinary tab cannot be represented as subscribed; install and launch web app; gesture-triggered permission; background/locked delivery; click opens intended context. |
+| Permission recovery | Every promised family | Fresh grant, dismissal, denial, manual revocation, OS-level block, re-enable; no endless prompt loop or misleading enabled status. |
+| Lifecycle | Every promised family | Clear site data, unregister worker, remove/reinstall app, replace subscription, offline expiry, reconnect, logout/account switch, two devices and two installs. Check old-account endpoints stop receiving after the chosen account policy takes effect. |
+| Content/navigation | Every promised family | Question → Instructor and reply → asking Student; correct lesson destination; expired login; access removed; lock-screen preview; duplicate delivery; deleted content. |
+| Restrictions | Relevant targets | Private browsing, enterprise policy, restricted network, Focus/Do Not Disturb. Distinguish accepted send, displayed notification and interaction. |
+| Optional declarative path | Only if adopted | Compatible and incompatible clients; missing/failing worker; fallback notification; chosen provider payload support. |
+
+The support promise, installation onboarding, minimum versions, permission timing, preview content, logout/shared-device behavior, delivery expectations and fallback experience remain human decisions. The current Firefox closed-browser rollout and older Google FAQ must not be generalized into universal behavior; physical-device results are still needed.
